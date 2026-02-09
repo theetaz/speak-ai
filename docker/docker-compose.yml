@@ -1,0 +1,19 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --dev
+    restart: unless-stopped
+    ports:
+      - "7880:7880"           # HTTP / WebSocket signaling
+      - "7881:7881"           # RTC over TCP
+      - "7882:7882/udp"       # RTC over UDP
+      - "3478:3478/udp"       # Built-in TURN server
+      - "30000-30002:30000-30002/udp"  # TURN relay ports
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
