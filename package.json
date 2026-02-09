@@ -1,0 +1,26 @@
+{
+  "name": "speakeasy-ai",
+  "private": true,
+  "scripts": {
+    "mobile": "pnpm --filter mobile",
+    "agent": "pnpm --filter agent",
+    "dev:mobile": "pnpm --filter mobile start",
+    "dev:agent": "pnpm --filter agent dev",
+    "dev:livekit": "docker compose -f docker/docker-compose.yml up -d",
+    "stop:livekit": "docker compose -f docker/docker-compose.yml down",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@ffmpeg-installer/darwin-arm64",
+      "esbuild",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp"
+    ]
+  }
+}
