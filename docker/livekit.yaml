@@ -1,9 +1,14 @@
 port: 7880
 rtc:
   tcp_port: 7881
+  udp_port: 7882
   port_range_start: 50000
   port_range_end: 60000
   use_external_ip: false
+  node_ip: 192.168.2.169
+turn:
+  enabled: true
+  udp_port: 3478
 redis:
   address: redis:6379
 keys:
