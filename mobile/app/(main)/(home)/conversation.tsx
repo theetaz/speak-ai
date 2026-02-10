@@ -43,6 +43,26 @@ export default function ConversationScreen() {
     router.back();
   };
 
+  const handleDisconnected = (reason?: unknown) => {
+    const r = reason as { reason?: number; reasonName?: string } | undefined;
+    // LeaveRequest (4) = server told us to leave — treat as normal end
+    if (r && (r.reason === 4 || r.reasonName === 'LeaveRequest')) {
+      handleEnd();
+      return;
+    }
+    setError('Connection lost. Please try again.');
+  };
+
+  const handleRoomError = (err: Error) => {
+    const msg = err?.message ?? 'Connection error';
+    // LeaveRequest during reconnect — treat as normal end
+    if (msg.includes('leave request') || msg.includes('LeaveRequest')) {
+      handleEnd();
+      return;
+    }
+    setError(msg);
+  };
+
   if (error) {
     return (
       <ScreenWrapper>
@@ -75,6 +95,8 @@ export default function ConversationScreen() {
       audio={true}
       video={false}
       connectOptions={{ peerConnectionTimeout: 30_000 }}
+      onDisconnected={handleDisconnected}
+      onError={handleRoomError}
     >
       <RoomContent onEnd={handleEnd} />
     </LiveKitRoom>
