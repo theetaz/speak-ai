@@ -8,6 +8,7 @@
     "dev:agent": "pnpm --filter agent dev",
     "dev:livekit": "docker compose -f docker/docker-compose.yml up -d",
     "stop:livekit": "docker compose -f docker/docker-compose.yml down",
+    "test:web": "npx serve test-web -p 3333",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
   },
