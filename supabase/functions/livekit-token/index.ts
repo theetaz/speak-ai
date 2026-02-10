@@ -24,6 +24,9 @@ async function createLiveKitToken(
       canSubscribe: true,
       canPublishData: true,
     },
+    roomConfig: {
+      agents: [{ agentName: 'speakeasy-agent', metadata }],
+    },
   };
 
   const encode = (obj: unknown) =>
