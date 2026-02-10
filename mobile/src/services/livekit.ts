@@ -1,7 +1,5 @@
 import { supabase } from './supabase';
 
-const ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-
 export interface ConnectionDetails {
   url: string;
   token: string;
@@ -14,16 +12,13 @@ export async function getLiveKitToken(conversationId: string): Promise<Connectio
     throw new Error('Not authenticated. Please sign in again.');
   }
 
-  // Supabase CLI v2.76+ signs user tokens with ES256, but the local edge
-  // runtime can only verify HS256. Work around by sending the HS256 anon key
-  // in Authorization (for the gateway) and the real user token in a custom
-  // header that our edge function reads directly.
+  // With the new Supabase publishable key (sb_publishable_...) and
+  // --no-verify-jwt on the edge function, the SDK handles auth automatically:
+  // - apikey header: publishable key (sent by SDK)
+  // - Authorization header: user's access_token (sent by SDK)
+  // The edge function verifies the user token internally via supabase.auth.getUser().
   const { data, error } = await supabase.functions.invoke('livekit-token', {
     body: { conversation_id: conversationId },
-    headers: {
-      Authorization: `Bearer ${ANON_KEY}`,
-      'x-user-token': session.access_token,
-    },
   });
 
   if (error) {
