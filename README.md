@@ -4,24 +4,7 @@ AI-powered voice conversation partner for non-native English speakers. Practice 
 
 ## Architecture
 
-```
-┌──────────────────────┐        WebRTC         ┌──────────────┐       HTTP/WS       ┌─────────────────┐
-│   Mobile App (Expo)  │ ◄───────────────────► │  LiveKit      │ ◄──────────────────► │  LiveKit Agent  │
-│   React Native       │                       │  Server       │                      │  (Node.js)      │
-│                      │                       │  (Docker)     │                      │                 │
-│  • Auth screens      │                       └──────────────┘                      │  • STT → LLM →  │
-│  • Onboarding        │                                                              │    TTS pipeline  │
-│  • Voice UI          │                                                              │  • Grammar tools │
-│  • Progress tracking │                                                              │  • Saves to DB   │
-└──────────┬───────────┘                                                              └────────┬────────┘
-           │                                                                                   │
-           │              ┌──────────────────────────────────────┐                             │
-           └─────────────►│              Supabase                 │◄────────────────────────────┘
-                          │  • Auth (email/password)              │
-                          │  • PostgreSQL (profiles, transcripts) │
-                          │  • Edge Functions (token generation)  │
-                          └──────────────────────────────────────┘
-```
+![Architecture Diagram](docs/images/realtime-ai-assitent-livekit.png)
 
 ## Tech Stack
 
