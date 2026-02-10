@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "SpeakEasy AI",
-    "slug": "speakeasy-ai",
+    "slug": "realtime-english-learining-assistent",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,8 +18,11 @@
       "bundleIdentifier": "com.speakeasy.ai",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "SpeakEasy AI needs microphone access for voice conversations with your AI English teacher.",
-        "UIBackgroundModes": ["audio"]
-      }
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      },
+      "bitcode": false
     },
     "android": {
       "package": "com.speakeasy.ai",
@@ -29,7 +32,15 @@
       },
       "permissions": [
         "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS"
+        "MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
       ]
     },
     "plugins": [
@@ -37,6 +48,13 @@
       "expo-secure-store",
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "92b159ca-6cfc-4b7d-9161-81203d96e1ee"
+      }
+    },
+    "owner": "theetaz"
   }
 }
