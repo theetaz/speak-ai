@@ -47,3 +47,7 @@ docker/data/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+
+# Testing
+test-web/
