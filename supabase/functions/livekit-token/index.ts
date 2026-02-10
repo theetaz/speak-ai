@@ -48,7 +48,7 @@ async function createLiveKitToken(
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-user-token',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 Deno.serve(async (req) => {
@@ -57,12 +57,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Accept user token from x-user-token header (avoids edge runtime ES256
-    // JWT verification bug) or fall back to the standard Authorization header.
-    const userToken = req.headers.get('x-user-token');
-    const authHeader = userToken
-      ? `Bearer ${userToken}`
-      : req.headers.get('Authorization');
+    // With --no-verify-jwt deployment (required for new sb_publishable_ keys),
+    // the SDK sends the user's access_token in the Authorization header.
+    // We use it to authenticate the user via supabase.auth.getUser().
+    const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Missing auth header');
 
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
