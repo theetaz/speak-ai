@@ -9,7 +9,11 @@ const ExpoSecureStoreAdapter = {
 };
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '';
+// Prefer publishable key; fallback to legacy anon key (some Auth flows work better with anon)
+const supabaseKey =
+  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
