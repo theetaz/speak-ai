@@ -22,11 +22,25 @@ import {
 
 dotenv.config({ path: '.env.local' });
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Agent] Unhandled rejection:', reason);
+});
+
 export default defineAgent({
   entry: async (ctx: JobContext) => {
-    await ctx.connect();
+    const roomName = ctx.room.name;
+    console.log(`[Agent] Joining room: ${roomName}`);
+
+    try {
+      await ctx.connect();
+      console.log(`[Agent] Connected to room: ${roomName}`);
+    } catch (err) {
+      console.error(`[Agent] Failed to connect to room ${roomName}:`, err);
+      throw err;
+    }
 
     const participant = await ctx.waitForParticipant();
+    console.log(`[Agent] Participant joined: ${participant.identity}`);
     const metadata = JSON.parse(participant.metadata ?? '{}');
 
     const {
@@ -220,4 +234,5 @@ export default defineAgent({
   },
 });
 
-cli.runApp(new WorkerOptions({ agent: fileURLToPath(import.meta.url) }));
+const AGENT_NAME = 'speakeasy-agent';
+cli.runApp(new WorkerOptions({ agent: fileURLToPath(import.meta.url), agentName: AGENT_NAME }));
