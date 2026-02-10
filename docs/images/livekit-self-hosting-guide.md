@@ -467,6 +467,7 @@ Then update the `server` block in `/etc/nginx/sites-available/livekit` to listen
 | WebSocket connection fails | Check Nginx config: `sudo nginx -t` — ensure `Upgrade` headers are set |
 | Clients can't connect media | Verify UDP ports `50000-60000` are open in Security Group |
 | TURN not working | Ensure `turn.livekit.yourdomain.com` DNS resolves to EC2 IP: `host turn.livekit.yourdomain.com` |
+| WebSocket "Stream end encountered" / disconnect | Check Nginx has `proxy_read_timeout 86400s` and `proxy_send_timeout 86400s`. On mobile, lock/background can close connections — ensure agent stays running. |
 | Redis connection refused | Confirm Redis is running: `sudo docker compose logs redis` |
 | Cloud-init stuck on EC2 | `sudo cloud-init clean --logs && sudo reboot now` |
 | Instance firewall blocking | Check: `sudo ufw status` → If active, run `sudo ufw allow 80,443,7881/tcp && sudo ufw allow 3478,50000:60000/udp` |
