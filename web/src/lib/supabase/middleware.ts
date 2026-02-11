@@ -28,14 +28,16 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/register");
+    request.nextUrl.pathname.startsWith("/register") ||
+    request.nextUrl.pathname.startsWith("/forgot-password");
+  const isResetRoute = request.nextUrl.pathname.startsWith("/reset-password");
   const isCallbackRoute = request.nextUrl.pathname.startsWith("/auth/callback");
 
   if (user && (isAuthRoute || request.nextUrl.pathname === "/")) {
     return NextResponse.redirect(new URL("/home", request.url));
   }
 
-  if (!user && !isAuthRoute && !isCallbackRoute && request.nextUrl.pathname !== "/") {
+  if (!user && !isAuthRoute && !isResetRoute && !isCallbackRoute && request.nextUrl.pathname !== "/") {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
