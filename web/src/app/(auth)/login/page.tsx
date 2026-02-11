@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { useSupabaseClient } from "@/hooks/use-supabase-client";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -28,8 +29,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastMethod, setLastMethod] = useState<string | null>(null);
 
   const supabase = useSupabaseClient();
+
+  useEffect(() => {
+    setLastMethod(localStorage.getItem("last_auth_method"));
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +48,7 @@ export default function LoginPage() {
         password,
       });
       if (error) throw error;
+      localStorage.setItem("last_auth_method", "email");
       toast.success("Welcome back!");
       router.push("/home");
       router.refresh();
@@ -57,6 +64,7 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
+    localStorage.setItem("last_auth_method", "google");
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -115,6 +123,11 @@ export default function LoginPage() {
                   />
                 </svg>
                 Continue with Google
+                {lastMethod === "google" && (
+                  <span className="ml-auto text-[10px] font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                    Last used
+                  </span>
+                )}
               </>
             )}
           </Button>
@@ -149,10 +162,17 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground hover:text-primary hover:underline transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <PasswordInput
                 id="password"
-                type="password"
                 placeholder="Your password"
                 value={password}
                 onChange={(e) => {
