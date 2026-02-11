@@ -8,6 +8,7 @@ import { useSupabaseClient } from "@/hooks/use-supabase-client";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -65,6 +66,7 @@ export default function RegisterPage() {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
+    localStorage.setItem("last_auth_method", "google");
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -177,9 +179,8 @@ export default function RegisterPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 placeholder="At least 6 characters"
                 value={password}
                 onChange={(e) => {
