@@ -1,29 +1,29 @@
 import {
   type JobContext,
-  WorkerOptions,
+  ServerOptions,
   cli,
   defineAgent,
-  voice,
-} from '@livekit/agents';
-import * as google from '@livekit/agents-plugin-google';
-import { fileURLToPath } from 'node:url';
-import dotenv from 'dotenv';
+  voice
+} from "@livekit/agents";
+import * as openai from "@livekit/agents-plugin-openai";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 
-import { buildTeacherPrompt } from './prompts/teacher.js';
-import { type GrammarError } from './tools/grammar.js';
-import { type PronunciationNote } from './tools/pronunciation.js';
-import { type VocabSuggestion } from './tools/vocabulary.js';
+import { buildTeacherPrompt } from "./prompts/teacher.js";
+import { type GrammarError } from "./tools/grammar.js";
+import { type PronunciationNote } from "./tools/pronunciation.js";
+import { type VocabSuggestion } from "./tools/vocabulary.js";
 import {
   saveTranscript,
   saveFeedback,
   updateConversation,
-  upsertDailyProgress,
-} from './services/supabase.js';
+  upsertDailyProgress
+} from "./services/supabase.js";
 
-dotenv.config({ path: '.env.local' });
+dotenv.config({ path: ".env.local" });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[Agent] Unhandled rejection:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[Agent] Unhandled rejection:", reason);
 });
 
 export default defineAgent({
@@ -41,45 +41,34 @@ export default defineAgent({
 
     const participant = await ctx.waitForParticipant();
     console.log(`[Agent] Participant joined: ${participant.identity}`);
-    const metadata = JSON.parse(participant.metadata ?? '{}');
+    const metadata = JSON.parse(participant.metadata ?? "{}");
 
     const {
       user_id,
       conversation_id,
-      english_level = 'B1',
-      native_language = 'unknown',
+      english_level = "B1",
+      native_language = "unknown",
       learning_goals = [],
       preferred_topics = [],
-      display_name = 'Learner',
+      display_name = "Learner"
     } = metadata;
 
     // Collect feedback during conversation
     const grammarErrors: GrammarError[] = [];
     const pronunciationNotes: PronunciationNote[] = [];
     const vocabSuggestions: VocabSuggestion[] = [];
-    const transcriptMessages: { role: string; content: string; timestamp_ms: number }[] = [];
+    const transcriptMessages: {
+      role: string;
+      content: string;
+      timestamp_ms: number;
+    }[] = [];
     const sessionStart = Date.now();
 
-    // --- Helper: create a fresh agent session ---
-    // The Gemini Live API (especially preview models) can crash with 1011
-    // "Internal error" — a known server-side bug triggered by accumulated
-    // context + tool definitions in bidi streaming mode.
-    //
-    // Strategy:
-    //   1. Use stable `gemini-2.0-flash-live-001` model instead of preview.
-    //   2. Remove tools from the realtime session (tools + bidi streaming
-    //      is the #1 trigger for 1011). Feedback is collected via transcripts
-    //      and analysed post-session instead.
-    //   3. turnDetection: 'realtime_llm' — delegate all VAD to Gemini
-    //      server-side. Prevents local Silero VAD from sending conflicting
-    //      "end of user turn" signals.
-    //   4. Auto-recovery: if Gemini crashes, spin up a fresh session
-    //      transparently so the user can keep talking.
-
     function createModel() {
-      return new google.beta.realtime.RealtimeModel({
-        voice: 'Puck',
-        temperature: 0.8,
+      return new openai.realtime.RealtimeModel({
+        model: "gpt-realtime-mini",
+        voice: "marin",
+        temperature: 0.3
       });
     }
 
@@ -90,17 +79,18 @@ export default defineAgent({
           native_language,
           learning_goals,
           preferred_topics,
-          display_name,
-        }),
-        // No tools — Gemini Live 1011 bug is triggered by functionDeclarations
-        // in bidi streaming. Grammar/vocab feedback collected from transcripts.
+          display_name
+        })
       });
     }
 
     function createSession() {
       return new voice.AgentSession({
         llm: createModel(),
-        turnDetection: 'realtime_llm',
+        turnDetection: "realtime_llm",
+        voiceOptions: {
+          userAwayTimeout: 60
+        }
       });
     }
 
@@ -108,29 +98,29 @@ export default defineAgent({
     function wireTranscripts(s: voice.AgentSession) {
       s.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
         transcriptMessages.push({
-          role: 'user',
+          role: "user",
           content: ev.transcript,
-          timestamp_ms: Date.now() - sessionStart,
+          timestamp_ms: Date.now() - sessionStart
         });
       });
       s.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
-        if (ev.item?.role === 'assistant' && ev.item?.content) {
+        if (ev.item?.role === "assistant" && ev.item?.content) {
           const raw = ev.item.content;
           const content = Array.isArray(raw)
             ? raw
                 .map((c) => {
-                  if (typeof c === 'string') return c;
-                  if (c && typeof c === 'object' && 'text' in c)
-                    return String((c as { text?: string }).text ?? '');
-                  return '';
+                  if (typeof c === "string") return c;
+                  if (c && typeof c === "object" && "text" in c)
+                    return String((c as { text?: string }).text ?? "");
+                  return "";
                 })
-                .join('')
+                .join("")
             : String(raw);
           if (content) {
             transcriptMessages.push({
-              role: 'assistant',
+              role: "assistant",
               content,
-              timestamp_ms: Date.now() - sessionStart,
+              timestamp_ms: Date.now() - sessionStart
             });
           }
         }
@@ -145,16 +135,16 @@ export default defineAgent({
 
     await session
       .generateReply({
-        instructions: `Greet ${display_name} warmly. Ask them how they're doing and what they'd like to practice today. Keep it brief and friendly.`,
+        instructions: `Greet ${display_name} warmly. Ask them how they're doing and what they'd like to practice today. Keep it brief and friendly.`
       })
       .waitForPlayout();
 
-    // --- Auto-recovery on Gemini 1011 crashes ---
+    // --- Auto-recovery on session errors ---
     let recovering = false;
     session.on(voice.AgentSessionEventTypes.Close, async (ev) => {
-      if (ev.reason === 'error' && !recovering) {
+      if (ev.reason === "error" && !recovering) {
         recovering = true;
-        console.warn('[Recovery] Session crashed, restarting...');
+        console.warn("[Recovery] Session crashed, restarting...");
         try {
           session = createSession();
           wireTranscripts(session);
@@ -162,16 +152,16 @@ export default defineAgent({
           await session
             .generateReply({
               instructions:
-                'Sorry, there was a brief technical glitch. Please continue — what were you saying?',
+                "Sorry, there was a brief technical glitch. Please continue — what were you saying?"
             })
             .waitForPlayout();
           // Re-attach close handler (recursive)
           attachCloseHandler(session);
           recovering = false;
         } catch (err) {
-          console.error('[Recovery] Failed to restart session:', err);
+          console.error("[Recovery] Failed to restart session:", err);
         }
-      } else if (ev.reason !== 'error') {
+      } else if (ev.reason !== "error") {
         // Normal close — persist data
         await persistSessionData();
       }
@@ -179,9 +169,9 @@ export default defineAgent({
 
     function attachCloseHandler(s: voice.AgentSession) {
       s.on(voice.AgentSessionEventTypes.Close, async (ev) => {
-        if (ev.reason === 'error' && !recovering) {
+        if (ev.reason === "error" && !recovering) {
           recovering = true;
-          console.warn('[Recovery] Session crashed, restarting...');
+          console.warn("[Recovery] Session crashed, restarting...");
           try {
             session = createSession();
             wireTranscripts(session);
@@ -189,15 +179,15 @@ export default defineAgent({
             await session
               .generateReply({
                 instructions:
-                  'Sorry, there was a brief technical glitch. Please continue — what were you saying?',
+                  "Sorry, there was a brief technical glitch. Please continue — what were you saying?"
               })
               .waitForPlayout();
             attachCloseHandler(session);
             recovering = false;
           } catch (err) {
-            console.error('[Recovery] Failed to restart session:', err);
+            console.error("[Recovery] Failed to restart session:", err);
           }
-        } else if (ev.reason !== 'error') {
+        } else if (ev.reason !== "error") {
           await persistSessionData();
         }
       });
@@ -206,7 +196,7 @@ export default defineAgent({
     async function persistSessionData() {
       const duration = Math.floor((Date.now() - sessionStart) / 1000);
       const wordCount = transcriptMessages
-        .filter((m) => m.role === 'user')
+        .filter((m) => m.role === "user")
         .reduce((sum, m) => sum + m.content.split(/\s+/).length, 0);
 
       try {
@@ -215,24 +205,35 @@ export default defineAgent({
           await saveFeedback(conversation_id, {
             grammar_corrections: grammarErrors,
             pronunciation_notes: pronunciationNotes,
-            vocabulary_suggestions: vocabSuggestions,
+            vocabulary_suggestions: vocabSuggestions
           });
           await updateConversation(conversation_id, {
-            status: 'completed',
+            status: "completed",
             ended_at: new Date().toISOString(),
             duration_seconds: duration,
-            english_level_at_time: english_level,
+            english_level_at_time: english_level
           });
         }
         if (user_id) {
-          await upsertDailyProgress(user_id, duration, wordCount, grammarErrors.length, vocabSuggestions.length);
+          await upsertDailyProgress(
+            user_id,
+            duration,
+            wordCount,
+            grammarErrors.length,
+            vocabSuggestions.length
+          );
         }
       } catch (err) {
-        console.error('Failed to save session data:', err);
+        console.error("Failed to save session data:", err);
       }
     }
-  },
+  }
 });
 
-const AGENT_NAME = 'speakeasy-agent';
-cli.runApp(new WorkerOptions({ agent: fileURLToPath(import.meta.url), agentName: AGENT_NAME }));
+const AGENT_NAME = "speakeasy-agent";
+cli.runApp(
+  new ServerOptions({
+    agent: fileURLToPath(import.meta.url),
+    agentName: AGENT_NAME
+  })
+);
