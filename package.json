@@ -10,7 +10,9 @@
     "stop:livekit": "docker compose -f docker/docker-compose.yml down",
     "test:web": "npx serve test-web -p 3333",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "web": "pnpm --filter web",
+    "dev:web": "pnpm --filter web dev"
   },
   "engines": {
     "node": ">=20"
