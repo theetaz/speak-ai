@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import Link from "next/link";
+import { User } from "lucide-react";
 import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function HomeDashboardPage() {
@@ -37,7 +38,14 @@ export default async function HomeDashboardPage() {
               Ready to practice your English?
             </p>
           </div>
-          <SignOutButton />
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="icon" className="rounded-full">
+              <Link href="/profile">
+                <User className="size-4" />
+              </Link>
+            </Button>
+            <SignOutButton />
+          </div>
         </div>
 
         <Card className="rounded-2xl border-2 overflow-hidden transition-shadow hover:shadow-lg">
