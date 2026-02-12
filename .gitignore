@@ -30,6 +30,9 @@ agent/dist/
 *.swo
 .cursor/
 .claude/
+.cursorrules
+.cursorignore
+.agents/
 
 # OS
 .DS_Store
