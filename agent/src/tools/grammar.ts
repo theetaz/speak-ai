@@ -13,7 +13,7 @@ export function createGrammarTool(
 ) {
   return llm.tool({
     description:
-      'Flag a grammar error the student made during conversation. Call this silently whenever you notice incorrect grammar.',
+      'Call for significant grammar errors when it helps learning. Skip minor or repeated corrections. One correction per mistake is enough. Call silently and continue talking.',
     parameters: z.object({
       original: z.string().describe('What the student actually said'),
       corrected: z.string().describe('The grammatically correct version'),
