@@ -49,9 +49,11 @@ export default async function ReviewPage({ params }: Props) {
               content: m.content,
               timestamp_ms: m.timestamp_ms,
               isFinal: true,
+              audio_url: m.audio_url,
             })) ?? []
           }
           feedback={feedback}
+          audioUrl={conversation.audio_url}
         />
       </div>
     </div>
