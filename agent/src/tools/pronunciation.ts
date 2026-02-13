@@ -13,7 +13,7 @@ export function createPronunciationTool(
 ) {
   return llm.tool({
     description:
-      "Flag a pronunciation concern based on the student's native language patterns or common English pronunciation difficulties.",
+      "Call this when you are confident there is a pronunciation issue that would help the student. Flag words commonly mispronounced by non-native speakers. Call silently and continue talking.",
     parameters: z.object({
       word: z.string().describe('The word with pronunciation concern'),
       issue: z.string().describe('What the pronunciation issue is'),
