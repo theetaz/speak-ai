@@ -7,7 +7,10 @@ export interface VocabSuggestion {
   example: string;
 }
 
-export function createVocabularyTool(suggestions: VocabSuggestion[]) {
+export function createVocabularyTool(
+  suggestions: VocabSuggestion[],
+  onFeedback?: (data: VocabSuggestion) => void,
+) {
   return llm.tool({
     description:
       'Suggest a useful vocabulary word that came up in conversation or would be helpful for the student to learn.',
@@ -17,7 +20,9 @@ export function createVocabularyTool(suggestions: VocabSuggestion[]) {
       example: z.string().describe('An example sentence using the word'),
     }),
     execute: async ({ word, definition, example }) => {
-      suggestions.push({ word, definition, example });
+      const suggestion: VocabSuggestion = { word, definition, example };
+      suggestions.push(suggestion);
+      onFeedback?.(suggestion);
       return `Vocabulary suggestion noted: "${word}" - ${definition}`;
     },
   });
