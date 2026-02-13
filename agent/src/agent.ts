@@ -5,21 +5,27 @@ import {
   defineAgent,
   voice
 } from "@livekit/agents";
+import { RoomEvent } from "@livekit/rtc-node";
 import * as openai from "@livekit/agents-plugin-openai";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 import { buildTeacherPrompt } from "./prompts/teacher.js";
 import { createGrammarTool, type GrammarError } from "./tools/grammar.js";
-import { createPronunciationTool, type PronunciationNote } from "./tools/pronunciation.js";
-import { createVocabularyTool, type VocabSuggestion } from "./tools/vocabulary.js";
+import {
+  createPronunciationTool,
+  type PronunciationNote
+} from "./tools/pronunciation.js";
+import {
+  createVocabularyTool,
+  type VocabSuggestion
+} from "./tools/vocabulary.js";
 import {
   saveTranscript,
   saveFeedback,
   updateConversation,
   upsertDailyProgress
 } from "./services/supabase.js";
-import { analyzeConversation } from "./services/analysis.js";
 
 dotenv.config({ path: ".env.local" });
 
@@ -71,8 +77,14 @@ export default defineAgent({
       data: GrammarError | PronunciationNote | VocabSuggestion
     ) => {
       try {
-        const payload = JSON.stringify({ type, data, timestamp_ms: Date.now() - sessionStart });
-        await ctx.room.localParticipant?.sendText(payload, { topic: "lk.feedback" });
+        const payload = JSON.stringify({
+          type,
+          data,
+          timestamp_ms: Date.now() - sessionStart
+        });
+        await ctx.room.localParticipant?.sendText(payload, {
+          topic: "lk.feedback"
+        });
       } catch (err) {
         console.warn("[Agent] Failed to publish feedback:", err);
       }
@@ -84,13 +96,15 @@ export default defineAgent({
         voice: "marin",
         temperature: 0.3,
         inputAudioTranscription: {
-          model: "whisper-1",
+          model: "gpt-4o-mini-transcribe",
           language: "en",
+          prompt:
+            "Transcribe verbatim. Do not correct grammar, punctuation, or word choice. Preserve exactly what the speaker said."
         },
         turnDetection: {
           type: "server_vad",
           threshold: 0.5,
-          silence_duration_ms: 600,
+          silence_duration_ms: 1500,
           prefix_padding_ms: 300,
           create_response: true
         }
@@ -107,9 +121,15 @@ export default defineAgent({
           display_name
         }),
         tools: {
-          flag_grammar_error: createGrammarTool(grammarErrors, (d) => publishFeedback("grammar", d)),
-          flag_pronunciation: createPronunciationTool(pronunciationNotes, (d) => publishFeedback("pronunciation", d)),
-          suggest_vocabulary: createVocabularyTool(vocabSuggestions, (d) => publishFeedback("vocabulary", d)),
+          flag_grammar_error: createGrammarTool(grammarErrors, (d) =>
+            publishFeedback("grammar", d)
+          ),
+          flag_pronunciation: createPronunciationTool(pronunciationNotes, (d) =>
+            publishFeedback("pronunciation", d)
+          ),
+          suggest_vocabulary: createVocabularyTool(vocabSuggestions, (d) =>
+            publishFeedback("vocabulary", d)
+          )
         }
       });
     }
@@ -170,6 +190,42 @@ export default defineAgent({
         instructions: `Greet ${display_name} warmly. Ask them how they're doing and what they'd like to practice today. Keep it brief and friendly.`
       })
       .waitForPlayout();
+
+    const userIdentity = participant.identity;
+
+    const closeSessionAndPersist = async () => {
+      try {
+        await session.close();
+      } catch {
+        await persistSessionData();
+      }
+    };
+
+    ctx.room.on(RoomEvent.ParticipantDisconnected, (p) => {
+      if (p.identity === userIdentity) {
+        console.log(
+          `[Agent] User ${userIdentity} disconnected, closing session`
+        );
+        void closeSessionAndPersist();
+      }
+    });
+
+    ctx.room.on(RoomEvent.DataReceived, (data: Uint8Array, p) => {
+      if (p?.identity !== userIdentity) return;
+      try {
+        const text = new TextDecoder().decode(data);
+        if (text === "lk.end-session") {
+          console.log("[Agent] Received lk.end-session, closing session");
+          void closeSessionAndPersist();
+        }
+      } catch {
+        // ignore decode errors
+      }
+    });
+
+    ctx.addShutdownCallback(async () => {
+      await persistSessionData();
+    });
 
     // --- 2-minute session timeout ---
     const SESSION_DURATION_MS = 2 * 60 * 1000;
@@ -247,7 +303,10 @@ export default defineAgent({
       });
     }
 
+    let persisted = false;
     async function persistSessionData() {
+      if (persisted) return;
+      persisted = true;
       clearTimeout(sessionTimer);
       const duration = Math.floor((Date.now() - sessionStart) / 1000);
       const wordCount = transcriptMessages
@@ -258,26 +317,10 @@ export default defineAgent({
         if (conversation_id) {
           await saveTranscript(conversation_id, transcriptMessages);
 
-          const analysis = await analyzeConversation({
-            transcript: transcriptMessages,
-            grammarErrors,
-            pronunciationNotes,
-            vocabSuggestions,
-            english_level,
-            native_language
-          });
-
           await saveFeedback(conversation_id, {
             grammar_corrections: grammarErrors,
             pronunciation_notes: pronunciationNotes,
-            vocabulary_suggestions: vocabSuggestions,
-            overall_feedback: analysis.overall_feedback,
-            fluency_score: analysis.fluency_score,
-            grammar_score: analysis.grammar_score,
-            vocabulary_score: analysis.vocabulary_score,
-            pronunciation_score: analysis.pronunciation_score,
-            overall_score: analysis.overall_score,
-            ai_analysis: analysis.ai_analysis
+            vocabulary_suggestions: vocabSuggestions
           });
           await updateConversation(conversation_id, {
             status: "completed",
