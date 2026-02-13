@@ -10,15 +10,16 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 import { buildTeacherPrompt } from "./prompts/teacher.js";
-import { type GrammarError } from "./tools/grammar.js";
-import { type PronunciationNote } from "./tools/pronunciation.js";
-import { type VocabSuggestion } from "./tools/vocabulary.js";
+import { createGrammarTool, type GrammarError } from "./tools/grammar.js";
+import { createPronunciationTool, type PronunciationNote } from "./tools/pronunciation.js";
+import { createVocabularyTool, type VocabSuggestion } from "./tools/vocabulary.js";
 import {
   saveTranscript,
   saveFeedback,
   updateConversation,
   upsertDailyProgress
 } from "./services/supabase.js";
+import { analyzeConversation } from "./services/analysis.js";
 
 dotenv.config({ path: ".env.local" });
 
@@ -64,11 +65,35 @@ export default defineAgent({
     }[] = [];
     const sessionStart = Date.now();
 
+    // Publish real-time feedback to the client via text stream
+    const publishFeedback = async (
+      type: "grammar" | "pronunciation" | "vocabulary",
+      data: GrammarError | PronunciationNote | VocabSuggestion
+    ) => {
+      try {
+        const payload = JSON.stringify({ type, data, timestamp_ms: Date.now() - sessionStart });
+        await ctx.room.localParticipant?.sendText(payload, { topic: "lk.feedback" });
+      } catch (err) {
+        console.warn("[Agent] Failed to publish feedback:", err);
+      }
+    };
+
     function createModel() {
       return new openai.realtime.RealtimeModel({
         model: "gpt-realtime-mini",
         voice: "marin",
-        temperature: 0.3
+        temperature: 0.3,
+        inputAudioTranscription: {
+          model: "whisper-1",
+          language: "en",
+        },
+        turnDetection: {
+          type: "server_vad",
+          threshold: 0.5,
+          silence_duration_ms: 600,
+          prefix_padding_ms: 300,
+          create_response: true
+        }
       });
     }
 
@@ -80,17 +105,19 @@ export default defineAgent({
           learning_goals,
           preferred_topics,
           display_name
-        })
+        }),
+        tools: {
+          flag_grammar_error: createGrammarTool(grammarErrors, (d) => publishFeedback("grammar", d)),
+          flag_pronunciation: createPronunciationTool(pronunciationNotes, (d) => publishFeedback("pronunciation", d)),
+          suggest_vocabulary: createVocabularyTool(vocabSuggestions, (d) => publishFeedback("vocabulary", d)),
+        }
       });
     }
 
     function createSession() {
       return new voice.AgentSession({
         llm: createModel(),
-        turnDetection: "realtime_llm",
-        voiceOptions: {
-          userAwayTimeout: 60
-        }
+        turnDetection: "realtime_llm"
       });
     }
 
@@ -131,13 +158,34 @@ export default defineAgent({
     let session = createSession();
     wireTranscripts(session);
 
-    await session.start({ agent: createAgent(), room: ctx.room });
+    await session.start({
+      agent: createAgent(),
+      room: ctx.room,
+      // Disable sync transcription so text arrives immediately (not word-by-word with audio)
+      outputOptions: { syncTranscription: false }
+    });
 
     await session
       .generateReply({
         instructions: `Greet ${display_name} warmly. Ask them how they're doing and what they'd like to practice today. Keep it brief and friendly.`
       })
       .waitForPlayout();
+
+    // --- 2-minute session timeout ---
+    const SESSION_DURATION_MS = 2 * 60 * 1000;
+    const sessionTimer = setTimeout(async () => {
+      try {
+        await session
+          .generateReply({
+            instructions:
+              "Our practice time is up! Give a brief, warm closing. Summarize one thing the student did well and one area to keep working on. Say goodbye encouragingly."
+          })
+          .waitForPlayout();
+        await session.close();
+      } catch {
+        console.warn("[Timer] Failed to close session gracefully");
+      }
+    }, SESSION_DURATION_MS);
 
     // --- Auto-recovery on session errors ---
     let recovering = false;
@@ -148,21 +196,23 @@ export default defineAgent({
         try {
           session = createSession();
           wireTranscripts(session);
-          await session.start({ agent: createAgent(), room: ctx.room });
+          await session.start({
+            agent: createAgent(),
+            room: ctx.room,
+            outputOptions: { syncTranscription: false }
+          });
           await session
             .generateReply({
               instructions:
                 "Sorry, there was a brief technical glitch. Please continue — what were you saying?"
             })
             .waitForPlayout();
-          // Re-attach close handler (recursive)
           attachCloseHandler(session);
           recovering = false;
         } catch (err) {
           console.error("[Recovery] Failed to restart session:", err);
         }
       } else if (ev.reason !== "error") {
-        // Normal close — persist data
         await persistSessionData();
       }
     });
@@ -175,7 +225,11 @@ export default defineAgent({
           try {
             session = createSession();
             wireTranscripts(session);
-            await session.start({ agent: createAgent(), room: ctx.room });
+            await session.start({
+              agent: createAgent(),
+              room: ctx.room,
+              outputOptions: { syncTranscription: false }
+            });
             await session
               .generateReply({
                 instructions:
@@ -194,6 +248,7 @@ export default defineAgent({
     }
 
     async function persistSessionData() {
+      clearTimeout(sessionTimer);
       const duration = Math.floor((Date.now() - sessionStart) / 1000);
       const wordCount = transcriptMessages
         .filter((m) => m.role === "user")
@@ -202,10 +257,27 @@ export default defineAgent({
       try {
         if (conversation_id) {
           await saveTranscript(conversation_id, transcriptMessages);
+
+          const analysis = await analyzeConversation({
+            transcript: transcriptMessages,
+            grammarErrors,
+            pronunciationNotes,
+            vocabSuggestions,
+            english_level,
+            native_language
+          });
+
           await saveFeedback(conversation_id, {
             grammar_corrections: grammarErrors,
             pronunciation_notes: pronunciationNotes,
-            vocabulary_suggestions: vocabSuggestions
+            vocabulary_suggestions: vocabSuggestions,
+            overall_feedback: analysis.overall_feedback,
+            fluency_score: analysis.fluency_score,
+            grammar_score: analysis.grammar_score,
+            vocabulary_score: analysis.vocabulary_score,
+            pronunciation_score: analysis.pronunciation_score,
+            overall_score: analysis.overall_score,
+            ai_analysis: analysis.ai_analysis
           });
           await updateConversation(conversation_id, {
             status: "completed",
