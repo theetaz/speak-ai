@@ -7,7 +7,10 @@ export interface GrammarError {
   explanation: string;
 }
 
-export function createGrammarTool(errors: GrammarError[]) {
+export function createGrammarTool(
+  errors: GrammarError[],
+  onFeedback?: (data: GrammarError) => void,
+) {
   return llm.tool({
     description:
       'Flag a grammar error the student made during conversation. Call this silently whenever you notice incorrect grammar.',
@@ -17,7 +20,9 @@ export function createGrammarTool(errors: GrammarError[]) {
       explanation: z.string().describe('Brief, simple explanation of the error'),
     }),
     execute: async ({ original, corrected, explanation }) => {
-      errors.push({ original, corrected, explanation });
+      const error: GrammarError = { original, corrected, explanation };
+      errors.push(error);
+      onFeedback?.(error);
       return `Noted grammar correction: "${original}" → "${corrected}"`;
     },
   });
