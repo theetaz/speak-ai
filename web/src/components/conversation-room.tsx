@@ -33,6 +33,7 @@ type SessionState =
   | "ended";
 
 const SESSION_DURATION = 2 * 60;
+const MERGE_GAP_MS = 3000; // merge consecutive same-role segments within 3s
 
 export function ConversationRoom() {
   const router = useRouter();
@@ -50,8 +51,16 @@ export function ConversationRoom() {
   const [error, setError] = useState<string | null>(null);
 
   const sessionStartRef = useRef<number>(0);
-  // Segment-based message tracking for deduplication
   const segmentMapRef = useRef<Map<string, TranscriptMessage>>(new Map());
+  // Audio recording: full mixed + per-message (user and agent separate)
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const userRecorderRef = useRef<MediaRecorder | null>(null);
+  const agentRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const userChunksRef = useRef<{ start_ms: number; blob: Blob }[]>([]);
+  const agentChunksRef = useRef<{ start_ms: number; blob: Blob }[]>([]);
+  const recordingStartRef = useRef<number>(0);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -69,11 +78,31 @@ export function ConversationRoom() {
     };
   }, []);
 
-  const flushMessages = useCallback(() => {
-    setMessages(
-      Array.from(segmentMapRef.current.values()).filter((m) => m.content.trim()),
-    );
+  const getMergedMessages = useCallback(() => {
+    const raw = Array.from(segmentMapRef.current.values()).filter((m) => m.content.trim());
+    const merged: TranscriptMessage[] = [];
+    for (const msg of raw) {
+      const prev = merged[merged.length - 1];
+      if (
+        prev &&
+        prev.role === msg.role &&
+        msg.timestamp_ms - prev.timestamp_ms < MERGE_GAP_MS
+      ) {
+        prev.content += " " + msg.content;
+        prev.isFinal = msg.isFinal;
+        prev.grammarErrors = [...(prev.grammarErrors ?? []), ...(msg.grammarErrors ?? [])];
+        prev.pronunciationNotes = [...(prev.pronunciationNotes ?? []), ...(msg.pronunciationNotes ?? [])];
+        prev.vocabSuggestions = [...(prev.vocabSuggestions ?? []), ...(msg.vocabSuggestions ?? [])];
+      } else {
+        merged.push({ ...msg, grammarErrors: [...(msg.grammarErrors ?? [])], pronunciationNotes: [...(msg.pronunciationNotes ?? [])], vocabSuggestions: [...(msg.vocabSuggestions ?? [])] });
+      }
+    }
+    return merged;
   }, []);
+
+  const flushMessages = useCallback(() => {
+    setMessages(getMergedMessages());
+  }, [getMergedMessages]);
 
   const startSession = useCallback(async () => {
     setState("connecting");
@@ -103,11 +132,93 @@ export function ConversationRoom() {
       const isAgent = (p: { kind: ParticipantKind }) =>
         p.kind === ParticipantKind.AGENT;
 
+      const startRecording = () => {
+        try {
+          const ctx = new AudioContext();
+          audioCtxRef.current = ctx;
+          const dest = ctx.createMediaStreamDestination();
+          recordingStartRef.current = Date.now();
+
+          // Capture user mic
+          const localTrack = room.localParticipant.audioTrackPublications.values().next().value;
+          if (localTrack?.track?.mediaStreamTrack) {
+            const micSource = ctx.createMediaStreamSource(new MediaStream([localTrack.track.mediaStreamTrack]));
+            micSource.connect(dest);
+          }
+
+          // Capture agent audio (will connect when agent track arrives)
+          const connectAgentAudio = () => {
+            for (const p of room.remoteParticipants.values()) {
+              if (isAgent(p)) {
+                for (const pub of p.audioTrackPublications.values()) {
+                  if (pub.track?.mediaStreamTrack) {
+                    const src = ctx.createMediaStreamSource(new MediaStream([pub.track.mediaStreamTrack]));
+                    src.connect(dest);
+                  }
+                }
+              }
+            }
+          };
+          connectAgentAudio();
+          room.on(RoomEvent.TrackSubscribed, connectAgentAudio);
+
+          chunksRef.current = [];
+          const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
+          recorder.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+          recorder.start(1000);
+          recorderRef.current = recorder;
+
+          // Per-message: user and agent separately
+          userChunksRef.current = [];
+          agentChunksRef.current = [];
+          const base = recordingStartRef.current - sessionStartRef.current;
+
+          if (localTrack?.track?.mediaStreamTrack) {
+            const userStream = new MediaStream([localTrack.track.mediaStreamTrack]);
+            const userRecorder = new MediaRecorder(userStream, { mimeType: "audio/webm;codecs=opus" });
+            let userChunkIndex = 0;
+            userRecorder.ondataavailable = (e) => {
+              if (e.data.size) userChunksRef.current.push({ start_ms: base + userChunkIndex * 1000, blob: e.data });
+              userChunkIndex++;
+            };
+            userRecorder.start(1000);
+            userRecorderRef.current = userRecorder;
+          }
+
+          const startAgentRecorder = () => {
+            for (const p of room.remoteParticipants.values()) {
+              if (isAgent(p)) {
+                for (const pub of p.audioTrackPublications.values()) {
+                  if (pub.track?.mediaStreamTrack && !agentRecorderRef.current) {
+                    const agentStream = new MediaStream([pub.track.mediaStreamTrack]);
+                    const agentRecorder = new MediaRecorder(agentStream, { mimeType: "audio/webm;codecs=opus" });
+                    const agentBase = Date.now() - sessionStartRef.current;
+                    let agentChunkIndex = 0;
+                    agentRecorder.ondataavailable = (e) => {
+                      if (e.data.size) agentChunksRef.current.push({ start_ms: agentBase + agentChunkIndex * 1000, blob: e.data });
+                      agentChunkIndex++;
+                    };
+                    agentRecorder.start(1000);
+                    agentRecorderRef.current = agentRecorder;
+                    return;
+                  }
+                }
+              }
+            }
+          };
+          startAgentRecorder();
+          room.on(RoomEvent.TrackSubscribed, () => startAgentRecorder());
+        } catch {
+          // Recording not supported, continue without it
+        }
+      };
+
       const activateSession = () => {
         if (sessionStartRef.current) return;
         setState("active");
         sessionStartRef.current = Date.now();
         setTimeLeft(SESSION_DURATION);
+        startRecording();
         timerRef.current = setInterval(() => {
           setTimeLeft((prev) => {
             if (prev <= 1) {
@@ -272,12 +383,73 @@ export function ConversationRoom() {
     }
   }, [flushMessages]);
 
+  const uploadRecording = useCallback(async (cId: string) => {
+    const recorder = recorderRef.current;
+    const userRecorder = userRecorderRef.current;
+    const agentRecorder = agentRecorderRef.current;
+    const stopRecorder = (r: MediaRecorder | null) =>
+      r && r.state !== "inactive" ? new Promise<void>((resolve) => { r.onstop = () => resolve(); r.stop(); }) : Promise.resolve();
+    await Promise.all([stopRecorder(recorder), stopRecorder(userRecorder), stopRecorder(agentRecorder)]);
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    userRecorderRef.current = null;
+    agentRecorderRef.current = null;
+
+    if (chunksRef.current.length === 0) return;
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    chunksRef.current = [];
+
+    const form = new FormData();
+    form.append("audio", blob, `${cId}.webm`);
+
+    const merged = getMergedMessages();
+    const sessionEnd = Date.now() - sessionStartRef.current;
+    const userChunks = userChunksRef.current;
+    const agentChunks = agentChunksRef.current;
+    userChunksRef.current = [];
+    agentChunksRef.current = [];
+
+    const getClipsInRange = (chunks: { start_ms: number; blob: Blob }[], startMs: number, endMs: number) => {
+      const result: Blob[] = [];
+      for (const c of chunks) {
+        const chunkEnd = c.start_ms + 1000;
+        if (chunkEnd > startMs && c.start_ms < endMs) result.push(c.blob);
+      }
+      return result;
+    };
+
+    for (let i = 0; i < merged.length; i++) {
+      const msg = merged[i];
+      const startMs = msg.timestamp_ms;
+      const endMs = i + 1 < merged.length ? merged[i + 1].timestamp_ms : sessionEnd;
+      const chunks = msg.role === "user" ? getClipsInRange(userChunks, startMs, endMs) : getClipsInRange(agentChunks, startMs, endMs);
+      if (chunks.length > 0) {
+        const clipBlob = new Blob(chunks, { type: "audio/webm" });
+        form.append(`msg_${i}`, clipBlob, `msg_${i}.webm`);
+      }
+    }
+
+    try {
+      await fetch(`/api/conversation/${cId}/upload-audio`, { method: "POST", body: form });
+    } catch {
+      // upload failure is non-blocking
+    }
+  }, []);
+
   const endSession = useCallback(async () => {
     if (state === "ending" || state === "ended") return;
     setState("ending");
     if (timerRef.current) clearInterval(timerRef.current);
+    if (conversationId) await uploadRecording(conversationId);
     try {
-      await roomRef.current?.disconnect();
+      const room = roomRef.current;
+      if (room) {
+        await room.localParticipant.publishData(
+          new TextEncoder().encode("lk.end-session"),
+          { reliable: true }
+        );
+        await room.disconnect();
+      }
     } catch {
       // ignore
     }
@@ -286,7 +458,7 @@ export function ConversationRoom() {
       audioRef.current = null;
     }
     setState("ended");
-  }, [state]);
+  }, [state, conversationId, uploadRecording]);
 
   const toggleMute = useCallback(async () => {
     const room = roomRef.current;
