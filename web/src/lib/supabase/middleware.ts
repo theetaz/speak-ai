@@ -32,6 +32,9 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/forgot-password");
   const isResetRoute = request.nextUrl.pathname.startsWith("/reset-password");
   const isCallbackRoute = request.nextUrl.pathname.startsWith("/auth/callback");
+  const isCronRoute = request.nextUrl.pathname.startsWith("/api/cron/");
+
+  if (isCronRoute) return response;
 
   if (user && (isAuthRoute || request.nextUrl.pathname === "/")) {
     return NextResponse.redirect(new URL("/home", request.url));
