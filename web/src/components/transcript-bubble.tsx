@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface GrammarError {
@@ -31,6 +31,7 @@ export interface TranscriptMessage {
   grammarErrors?: GrammarError[];
   pronunciationNotes?: PronunciationNote[];
   vocabSuggestions?: VocabSuggestion[];
+  audio_url?: string | null;
 }
 
 interface TranscriptBubbleProps {
@@ -39,6 +40,8 @@ interface TranscriptBubbleProps {
   pronunciationNotes?: PronunciationNote[];
   vocabSuggestions?: VocabSuggestion[];
   showAnnotations?: boolean;
+  onPlayAudio?: (timestampMs: number) => void;
+  onPlayMessageAudio?: (url: string) => void;
 }
 
 export function TranscriptBubble({
@@ -47,6 +50,8 @@ export function TranscriptBubble({
   pronunciationNotes: propPronunciation = [],
   vocabSuggestions: propVocab = [],
   showAnnotations = false,
+  onPlayAudio,
+  onPlayMessageAudio,
 }: TranscriptBubbleProps) {
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const isUser = message.role === "user";
@@ -264,8 +269,25 @@ export function TranscriptBubble({
         </div>
       )}
 
-      <span className="text-[10px] text-muted-foreground mt-1 px-1">
+      <span className="text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1">
         {isUser ? "You" : "Alex"} &middot; {timestamp}
+        {(onPlayMessageAudio && message.audio_url) ? (
+          <button
+            type="button"
+            onClick={() => onPlayMessageAudio(message.audio_url!)}
+            className="hover:text-foreground transition-colors"
+          >
+            <Play className="size-3 fill-current" />
+          </button>
+        ) : onPlayAudio ? (
+          <button
+            type="button"
+            onClick={() => onPlayAudio(message.timestamp_ms)}
+            className="hover:text-foreground transition-colors"
+          >
+            <Play className="size-3 fill-current" />
+          </button>
+        ) : null}
       </span>
     </div>
   );
