@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pause, Play } from "lucide-react";
+import { useSupabaseClient } from "@/hooks/use-supabase-client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -42,6 +43,7 @@ interface ConversationReviewProps {
   };
   messages: TranscriptMessage[];
   feedback: Feedback | null;
+  audioUrl?: string | null;
 }
 
 function ScoreRing({
@@ -97,21 +99,83 @@ export function ConversationReview({
   conversation,
   messages,
   feedback: initialFeedback,
+  audioUrl,
 }: ConversationReviewProps) {
   const [feedback, setFeedback] = useState<Feedback | null>(initialFeedback);
   const [analyzing, setAnalyzing] = useState(false);
+  const supabase = useSupabaseClient();
+
+  // Audio player state
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
 
   useEffect(() => {
-    if (!feedback?.ai_analysis && messages.length > 0) {
-      setAnalyzing(true);
-      fetch(`/api/conversation/${conversationId}/analyze`, { method: "POST" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data.error) setFeedback(data);
-        })
-        .catch(() => {})
-        .finally(() => setAnalyzing(false));
+    if (!audioUrl) return;
+    const el = new Audio(audioUrl);
+    el.preload = "metadata";
+    el.onloadedmetadata = () => setAudioDuration(el.duration);
+    el.ontimeupdate = () => setAudioProgress(el.currentTime);
+    el.onended = () => setPlaying(false);
+    audioElRef.current = el;
+    return () => { el.pause(); el.src = ""; };
+  }, [audioUrl]);
+
+  const seekAndPlay = useCallback((timestampMs: number) => {
+    const el = audioElRef.current;
+    if (!el) return;
+    el.currentTime = timestampMs / 1000;
+    el.play();
+    setPlaying(true);
+  }, []);
+
+  const messageAudioRef = useRef<HTMLAudioElement | null>(null);
+  const playMessageAudio = useCallback((url: string) => {
+    if (messageAudioRef.current) {
+      messageAudioRef.current.pause();
+      messageAudioRef.current.src = "";
     }
+    const el = new Audio(url);
+    messageAudioRef.current = el;
+    el.play();
+    el.onended = () => { messageAudioRef.current = null; };
+  }, []);
+
+  const togglePlayPause = useCallback(() => {
+    const el = audioElRef.current;
+    if (!el) return;
+    if (el.paused) { el.play(); setPlaying(true); }
+    else { el.pause(); setPlaying(false); }
+  }, []);
+
+  useEffect(() => {
+    if (feedback?.ai_analysis || messages.length === 0) return;
+    setAnalyzing(true);
+
+    const channel = supabase
+      .channel(`feedback-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_feedback",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as Record<string, unknown>;
+          if (row?.ai_analysis) {
+            setFeedback(row as Feedback);
+            setAnalyzing(false);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [conversationId, feedback?.ai_analysis, messages.length]);
 
   const grammarErrors = (feedback?.grammar_corrections ?? []) as GrammarError[];
@@ -292,10 +356,42 @@ export function ConversationReview({
                 pronunciationNotes={pronunciationNotes}
                 vocabSuggestions={vocabSuggestions}
                 showAnnotations
+                onPlayAudio={audioUrl ? seekAndPlay : undefined}
+                onPlayMessageAudio={playMessageAudio}
               />
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* Audio Mini Player */}
+      {audioUrl && audioDuration > 0 && (
+        <div className="sticky bottom-4 z-10">
+          <Card className="rounded-2xl border-2 shadow-lg">
+            <CardContent className="flex items-center gap-3 py-3 px-4">
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                className="shrink-0 size-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity"
+              >
+                {playing ? <Pause className="size-4" /> : <Play className="size-4 ml-0.5" />}
+              </button>
+              <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${audioDuration ? (audioProgress / audioDuration) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono text-muted-foreground tabular-nums shrink-0">
+                  {Math.floor(audioProgress / 60)}:{Math.floor(audioProgress % 60).toString().padStart(2, "0")}
+                  {" / "}
+                  {Math.floor(audioDuration / 60)}:{Math.floor(audioDuration % 60).toString().padStart(2, "0")}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Actions */}
