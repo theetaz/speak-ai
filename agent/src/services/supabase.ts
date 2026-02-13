@@ -35,6 +35,10 @@ export async function saveFeedback(
     overall_feedback?: string;
     fluency_score?: number;
     grammar_score?: number;
+    vocabulary_score?: number;
+    pronunciation_score?: number;
+    overall_score?: number;
+    ai_analysis?: string;
   },
 ) {
   await supabase().from('conversation_feedback').insert({
