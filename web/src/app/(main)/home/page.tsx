@@ -79,8 +79,15 @@ export default async function HomeDashboardPage() {
         {recentConversations && recentConversations.length > 0 && (
           <Card className="rounded-2xl border-2">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Recent Conversations</CardTitle>
-              <CardDescription>Review your past sessions</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg">Recent Conversations</CardTitle>
+                  <CardDescription>Review your past sessions</CardDescription>
+                </div>
+                <Button asChild variant="ghost" size="sm" className="text-xs">
+                  <Link href="/conversations">View All</Link>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-1">
               {recentConversations.map((conv) => {
